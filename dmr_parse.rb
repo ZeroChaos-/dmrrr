@@ -50,7 +50,7 @@ class Dmrrr
             end
             if column == "left"
               pbuff << "#{k}: #{v}".ljust(75)
-            else 
+            else
               pbuff << "#{k}: #{v}"
             end
             if k == @currently_speaking.split(' ')[0]

@@ -11,6 +11,7 @@ Decode:
 Radio:
 [x] Tytera MD380
 [x] Tytera MD390
+[x] MMDVMHost
 [ ] rtlsdr
 [ ] hackrf
 [ ] bladerf
