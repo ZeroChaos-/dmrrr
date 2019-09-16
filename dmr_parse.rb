@@ -43,11 +43,24 @@ class Dmrrr
           pbuff << "Recent speaker     : #{@last_speaker[3]}\n"
           pbuff << "Recent speaker     : #{@last_speaker[4]}\n"
           pbuff << "\n"
+          column = "left"
           @most_recent.sort.each do |k,v|
             if k == @currently_speaking.split(' ')[0]
-              pbuff << "\e[1m#{k}: #{v}\e[22m\n"
+              pbuff << "\e[1m"
+            end
+            if column == "left"
+              pbuff << "#{k}: #{v}".ljust(75)
+            else 
+              pbuff << "#{k}: #{v}"
+            end
+            if k == @currently_speaking.split(' ')[0]
+              pbuff << "\e[22m"
+            end
+            if column == "left"
+              column = "right"
             else
-              pbuff << "#{k}: #{v}\n"
+              pbuff << "\n"
+              column = "left"
             end
           end
           puts pbuff
@@ -85,10 +98,13 @@ class Dmrrr
     Thread.new do
     @loggie = File.open("dmr_parse.raw", "a")
     @loggie.sync = true
-    PTY.spawn("#{MD380TOOLS}md380-tool dmesgtail") do |stdout, stdin, pid|
+    #PTY.spawn("#{MD380TOOLS}md380-tool dmesgtail") do |stdout, stdin, pid|
+    PTY.spawn("tail -f /var/log/MMDVM-2019-09-08.log") do |stdout, stdin, pid|
           stdin.close
           stdout.each do |line|
-          next unless line[0..1] == '* '
+          line.chomp!
+          next if line.empty?
+          next unless line[0..1] == '[* ]' || line[0..1] == 'M:'
           received_time = Time.now.to_f
           message = parse_line("#{received_time} #{line.strip}")
           self.radio_queue << message
@@ -104,11 +120,21 @@ class Dmrrr
   end
 
   def parse_line(line)
+#mmdvm
+#M: 2019-09-06 18:43:57.822 DMR Slot 2, received RF voice header from 47 to TG 1
+#M: 2019-09-06 18:43:58.003 DMR Slot 2, received RF end of voice transmission, 0.0 seconds, BER: 0.0%
+#dmesgtail
+#1507594330 * Call from 3133002 to group 3181 started.
+#1507594351 * Call from 3133002 to group 3181 ended.
     @loggie.write("#{line}\n")
     line = line.split(" ")
-    if line[6] == 'group'
+    if line[9] == 'voice'
+      return Message.new(line[12],line[15],'started.',line[0].to_f,GROUP)
+    elsif line[9] == 'end'
+      return Message.new(line[14],line[16].gsub(',',''),'ended.',line[0].to_f,GROUP)
+    elsif line[6] == 'group'
       return Message.new(line[4],line[7],line.last,line[0].to_f,GROUP)
-    else
+    elsif line =~ /Call from/
       return Message.new(line[4],line[6],line.last,line[0].to_f,PRIV)
     end
   end
@@ -121,8 +147,8 @@ class Dmrrr
          sleep 1
         end
         until self.radio_queue.empty? do
-         message = self.radio_queue.shift
-         process_call(message)
+          message = self.radio_queue.shift
+          process_call(message) unless message.nil?
         end
       end
     end
@@ -142,6 +168,7 @@ class Dmrrr
     @currently_speaking = ""
     rescue => e
       @@logger.debug(e.inspect)
+      @@logger.debug(e.backtrace)
       exit 1
     end
   end
@@ -154,6 +181,7 @@ class Dmrrr
     @most_recent[message.caller_id] = "#{message.user} #{Time.at(message.received_time).to_s}"
     rescue => e
       @@logger.debug(e.inspect)
+      @@logger.debug(e.backtrace)
       exit 1
     end
   end
@@ -167,6 +195,7 @@ class Dmrrr
     @most_recent[message.caller_id] = "#{message.user} #{Time.at(message.received_time).to_s}"
     rescue => e
       @@logger.debug(e.inspect)
+      @@logger.debug(e.backtrace)
       exit 1
     end
   end
@@ -210,6 +239,7 @@ class Dmrrr
     end
     rescue => e
       @@logger.debug(e.inspect)
+      @@logger.debug(e.backtrace)
       exit 1
     end
   end
@@ -231,6 +261,7 @@ class Message
     user = @@db[self.caller_id]
     if user.nil? || user.empty?
       if (Time.now.to_i - @@db_last) > 60
+        puts @@db_last
         Message.users(true)
       end
     end
@@ -299,7 +330,8 @@ class Message
   def self.update_derby_db
     puts "updating db"
     #`curl 'https://docs.google.com/spreadsheets/d/1ph5Wh0Wztljtdd5PLKGipwEuYE3LIHT-1wSOs-e6iV4/export?format=csv&id=1ph5Wh0Wztljtdd5PLKGipwEuYE3LIHT-1wSOs-e6iV4&gid=0' > /tmp/custom.csv`
-    `curl 'https://docs.google.com/spreadsheets/d/1ph5Wh0Wztljtdd5PLKGipwEuYE3LIHT-1wSOs-e6iV4/export?format=csv&id=1ph5Wh0Wztljtdd5PLKGipwEuYE3LIHT-1wSOs-e6iV4&gid=1919271561' > /tmp/custom1.csv`
+    #`curl 'https://docs.google.com/spreadsheets/d/1ph5Wh0Wztljtdd5PLKGipwEuYE3LIHT-1wSOs-e6iV4/export?format=csv&id=1ph5Wh0Wztljtdd5PLKGipwEuYE3LIHT-1wSOs-e6iV4&gid=1919271561' > /tmp/custom1.csv`
+    `curl 'https://docs.google.com/spreadsheets/d/1bAIPm1okjKVg3mhWBd2lGjKGp9sMpVsN_Tc0yDzda-c/export?format=csv' > /tmp/custom1.csv`
     `sed -i '1d' /tmp/custom1.csv`
     `dos2unix /tmp/custom1.csv > /dev/null 2>&1`
     `awk -F',' '{print $3","$2}' /tmp/custom1.csv > /tmp/custom2.csv`
