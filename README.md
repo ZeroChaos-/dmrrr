@@ -18,8 +18,9 @@ Radio:
 
 Stats:
 [x] call duration
-[.] current speaker (listed in the logs because the main ui isn't started yet)
+[x] current speaker
 [x] if a call is interrupted
+[x] timestamp of last transmission from each radio
 [ ] long term speaker stats (across multiple xmit sessions)
 [ ] time slot decode
 [ ] color code decode
