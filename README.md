@@ -17,6 +17,12 @@ Radio:
 [ ] bladerf
 [ ] etc
 
+Call Indicator:
+[x] RX
+[ ] TX
+[ ] Slot
+[x] Interrupt detection
+
 Stats:
 [x] call duration
 [x] current speaker
@@ -25,4 +31,13 @@ Stats:
 [ ] long term speaker stats (across multiple xmit sessions)
 [ ] time slot decode
 [ ] color code decode
+
+Code Quality
+[ ] Great
+[ ] Good
+[ ] Minimally Acceptable
+[ ] Pretty Bad
+[x] Literal Garbage
+[ ] Unusable
+[ ] Unexecutable
 ```

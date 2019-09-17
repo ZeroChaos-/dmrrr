@@ -20,7 +20,40 @@ class Dmrrr
     logfile = "dmrrr.log"
     @@logger = Logger.new(logfile)
     @@logger.level = Logger::DEBUG
+    begin
+      require 'blinkstick'
+      @@led = true
+    rescue
+      @@led = false
+    end
     start_running
+  end
+
+  def led(state, ber=0)
+    return unless @@led
+    if state == "ended"
+      BlinkStick.find_all.each { |b| b.off }
+    elsif state == "rx"
+      BlinkStick.find_all.each { |b|
+        b.set_color(0, 0, Color::RGB.new(0,255,0))
+        b.set_color(0, 1, Color::RGB.new(0,255,0))
+      }
+    elsif state == "tx"
+      BlinkStick.find_all.each { |b|
+        b.set_color(0, 0, Color::RGB.new(255,0,0))
+        b.set_color(0, 1, Color::RGB.new(255,0,0))
+      }
+    elsif state == "int"
+      BlinkStick.find_all.each { |b|
+        b.set_color(0, 0, Color::RGB.new(178,0,255))
+        b.set_color(0, 1, Color::RGB.new(178,0,255))
+      }
+    else
+      BlinkStick.find_all.each { |b|
+        b.set_color(0, 0, Color::RGB.new(255,255,255))
+        b.set_color(0, 1, Color::RGB.new(255,255,255))
+      }
+    end
   end
 
   def start_running
@@ -99,7 +132,7 @@ class Dmrrr
     @loggie = File.open("dmr_parse.raw", "a")
     @loggie.sync = true
     #PTY.spawn("#{MD380TOOLS}md380-tool dmesgtail") do |stdout, stdin, pid|
-    PTY.spawn("tail -f /var/log/MMDVM-2019-09-08.log") do |stdout, stdin, pid|
+    PTY.spawn("ssh root@192.168.1.232 'tail -q -n0 -f /var/log/MMDVM-*.log'") do |stdout, stdin, pid|
           stdin.close
           stdout.each do |line|
           line.chomp!
@@ -154,6 +187,7 @@ class Dmrrr
     end
     rescue => e
       @@logger.debug(e.inspect)
+      @@logger.debug(e.backtrace)
       exit 1
     end
   end
@@ -166,6 +200,7 @@ class Dmrrr
     @last_speaker.unshift "#{@currently_speaking} #{Time.at(message.received_time).to_s}"
     @last_speaker.pop
     @currently_speaking = ""
+    led("ended")
     rescue => e
       @@logger.debug(e.inspect)
       @@logger.debug(e.backtrace)
@@ -179,6 +214,7 @@ class Dmrrr
     self.current_call = message
     @currently_speaking = "#{message.caller_id} #{message.user}"
     @most_recent[message.caller_id] = "#{message.user} #{Time.at(message.received_time).to_s}"
+    led("rx")
     rescue => e
       @@logger.debug(e.inspect)
       @@logger.debug(e.backtrace)
@@ -193,6 +229,7 @@ class Dmrrr
     self.current_call = message
     @currently_speaking << ", #{message.caller_id} #{message.user}"
     @most_recent[message.caller_id] = "#{message.user} #{Time.at(message.received_time).to_s}"
+    led("int")
     rescue => e
       @@logger.debug(e.inspect)
       @@logger.debug(e.backtrace)
