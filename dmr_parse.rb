@@ -23,6 +23,8 @@ class Dmrrr
     begin
       require 'blinkstick'
       @@led = true
+      @led_queue = Queue.new
+      led_thread
     rescue
       @@led = false
     end
@@ -32,31 +34,45 @@ class Dmrrr
   def led(state, ber=0)
     begin
       return unless @@led
-      if state == "ended"
-        BlinkStick.find_all.each { |b|
-          b.set_color(0, 0, Color::RGB.new(0,0,0))
-          b.set_color(0, 1, Color::RGB.new(0,0,0))
-        }
-      elsif state == "rx"
-        BlinkStick.find_all.each { |b|
-          b.set_color(0, 0, Color::RGB.new(0,255,0))
-          b.set_color(0, 1, Color::RGB.new(0,255,0))
-        }
-      elsif state == "tx"
-        BlinkStick.find_all.each { |b|
-          b.set_color(0, 0, Color::RGB.new(255,0,0))
-          b.set_color(0, 1, Color::RGB.new(255,0,0))
-        }
-      elsif state == "int"
-        BlinkStick.find_all.each { |b|
-          b.set_color(0, 0, Color::RGB.new(178,0,255))
-          b.set_color(0, 1, Color::RGB.new(178,0,255))
-        }
-      else
-        BlinkStick.find_all.each { |b|
-          b.set_color(0, 0, Color::RGB.new(255,255,255))
-          b.set_color(0, 1, Color::RGB.new(255,255,255))
-        }
+      @led_queue.push({state: state, ber: ber})
+      return true
+    rescue => e
+      @@logger.debug(e.inspect)
+      @@logger.debug(e.backtrace)
+    end
+  end
+
+  def led_thread
+    begin
+      Thread.new do
+        while action = @led_queue.pop do
+          if action[:state] == "ended"
+            BlinkStick.find_all.each { |b|
+              b.set_color(0, 0, Color::RGB.new(0,0,0))
+              b.set_color(0, 1, Color::RGB.new(0,0,0))
+            }
+          elsif action[:state] == "rx"
+            BlinkStick.find_all.each { |b|
+              b.set_color(0, 0, Color::RGB.new(0,255,0))
+              b.set_color(0, 1, Color::RGB.new(0,255,0))
+            }
+          elsif action[:state] == "tx"
+            BlinkStick.find_all.each { |b|
+              b.set_color(0, 0, Color::RGB.new(255,0,0))
+              b.set_color(0, 1, Color::RGB.new(255,0,0))
+            }
+          elsif action[:state] == "int"
+            BlinkStick.find_all.each { |b|
+              b.set_color(0, 0, Color::RGB.new(178,0,255))
+              b.set_color(0, 1, Color::RGB.new(178,0,255))
+            }
+          else
+            BlinkStick.find_all.each { |b|
+              b.set_color(0, 0, Color::RGB.new(255,255,255))
+              b.set_color(0, 1, Color::RGB.new(255,255,255))
+            }
+          end
+        end
       end
     rescue => e
       @@logger.debug(e.inspect)
