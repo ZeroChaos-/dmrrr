@@ -22,16 +22,19 @@ class Dmrrr
     @@logger.level = Logger::DEBUG
     begin
       require 'blinkstick'
-      @@led = true
       @led_queue = Queue.new
       led_thread
+      led("ended")
+      @@led = true
+      puts "led support enabled"
     rescue
       @@led = false
+      puts "led support disabled"
     end
     start_running
   end
 
-  def led(state, ber=0)
+  def led(state="error", ber=0)
     begin
       return unless @@led
       @led_queue.push({state: state, ber: ber})
@@ -45,36 +48,58 @@ class Dmrrr
   def led_thread
     begin
       Thread.new do
+        @last_set = Time.now.to_f
         while action = @led_queue.pop do
           if action[:state] == "ended"
             BlinkStick.find_all.each { |b|
               b.set_color(0, 0, Color::RGB.new(0,0,0))
               b.set_color(0, 1, Color::RGB.new(0,0,0))
+              @last_color = "0"
             }
           elsif action[:state] == "rx"
             BlinkStick.find_all.each { |b|
-              b.set_color(0, 0, Color::RGB.new(0,255,0))
-              b.set_color(0, 1, Color::RGB.new(0,255,0))
+              #puts "ber is #{action[:ber]}"
+              #brightness is set based on ber * 5 to make it obvious
+              color = 255 * (1 - action[:ber] * 5)
+              if color < 1
+                color = 1
+              end
+              #puts "color is #{color}"
+              if @last_color != color
+                #puts "new color"
+                if Time.now.to_f - @last_set > 0.5
+                  #puts "past timeout"
+                  b.set_color(0, 0, Color::RGB.new(0,color,0))
+                  b.set_color(0, 1, Color::RGB.new(0,color,0))
+                  @last_set = Time.now.to_f
+                  @last_color = color
+                end
+              end
             }
           elsif action[:state] == "tx"
             BlinkStick.find_all.each { |b|
               b.set_color(0, 0, Color::RGB.new(255,0,0))
               b.set_color(0, 1, Color::RGB.new(255,0,0))
+              @last_color = "256"
             }
           elsif action[:state] == "int"
             BlinkStick.find_all.each { |b|
               b.set_color(0, 0, Color::RGB.new(178,0,255))
               b.set_color(0, 1, Color::RGB.new(178,0,255))
+              @last_color = "256"
             }
           else
             BlinkStick.find_all.each { |b|
               b.set_color(0, 0, Color::RGB.new(255,255,255))
               b.set_color(0, 1, Color::RGB.new(255,255,255))
+              @last_color = "256"
             }
           end
+          sleep 0.05
         end
       end
     rescue => e
+      @@led_thread = false
       @@logger.debug(e.inspect)
       @@logger.debug(e.backtrace)
     end
@@ -163,9 +188,10 @@ class Dmrrr
           stdout.each do |line|
             line.chomp!
             next if line.empty?
-            next unless line[0..1] == '[* ]' || line[0..1] == 'M:'
+            next unless line[0..1] == '[* ]' || line[0..1] == 'M:' || line[0..1] == 'D:'
             received_time = Time.now.to_f
             message = parse_line("#{received_time} #{line.strip}")
+            next if message == "audio"
             self.radio_queue << message
           end
         end
@@ -180,8 +206,15 @@ class Dmrrr
   end
 
 #mmdvm
+#rx
 #M: 2019-09-06 18:43:57.822 DMR Slot 2, received RF voice header from 47 to TG 1
 #M: 2019-09-06 18:43:58.003 DMR Slot 2, received RF end of voice transmission, 0.0 seconds, BER: 0.0%
+#tx
+#M: 2019-03-08 04:26:37.720 DMR Slot 2, received network voice header from 3127787 to TG 98638
+#M: 2019-03-08 04:26:47.266 DMR Slot 2, received network end of voice transmission from 3127787 to TG 98638, 9.5 seconds, 0% packet loss, BER: 0.0%
+#RF Quality
+#D: 2019-03-08 04:41:08.546 DMR Slot 2, audio sequence no. 5, errs: 0/141 (0.0%)
+
 #dmesgtail
 #1507594330 * Call from 3133002 to group 3181 started.
 #1507594351 * Call from 3133002 to group 3181 ended.
@@ -190,13 +223,16 @@ class Dmrrr
       @loggie.write("#{line}\n")
       line = line.split(" ")
       if line[9] == 'voice'
-        return Message.new(line[12],line[15],'started.',line[0].to_f,GROUP)
+        return Message.new(line[12],line[15],'started.',line[0].to_f,GROUP,line[8])
       elsif line[9] == 'end'
-        return Message.new(line[14],line[17].gsub(',',''),'ended.',line[0].to_f,GROUP)
+        return Message.new(line[14],line[17].gsub(',',''),'ended.',line[0].to_f,GROUP,line[8])
+      elsif line[7] == "audio"
+        led("rx", line[-2].split('/')[0].to_i / 141.0)
+        return "audio"
       elsif line[6] == 'group'
-        return Message.new(line[4],line[7],line.last,line[0].to_f,GROUP)
+        return Message.new(line[4],line[7],line.last,line[0].to_f,GROUP,"RF")
       elsif line =~ /Call from/
-        return Message.new(line[4],line[6],line.last,line[0].to_f,PRIV)
+        return Message.new(line[4],line[6],line.last,line[0].to_f,PRIV,"RF")
       end
     rescue => e
       @@logger.debug(e.inspect)
@@ -206,18 +242,18 @@ class Dmrrr
   end
 
   def read_thread
-  begin
-    Thread.new do
-      loop do
-        while self.radio_queue.empty? do
-         sleep 1
-        end
-        until self.radio_queue.empty? do
-          message = self.radio_queue.shift
-          process_call(message) unless message.nil?
+    begin
+      Thread.new do
+        loop do
+          while self.radio_queue.empty? do
+            sleep 1
+          end
+          until self.radio_queue.empty? do
+            message = self.radio_queue.shift
+            process_call(message) unless message.nil?
+          end
         end
       end
-    end
     rescue => e
       @@logger.debug(e.inspect)
       @@logger.debug(e.backtrace)
@@ -247,7 +283,13 @@ class Dmrrr
       self.current_call = message
       @currently_speaking = "#{message.caller_id} #{message.user}"
       @most_recent[message.caller_id] = "#{message.user} #{Time.at(message.received_time).to_s}"
-      led("rx")
+      if message.source == "RF"
+        led("rx")
+      elsif message.source == "network"
+        led("tx")
+      else
+        led
+      end
     rescue => e
       @@logger.debug(e.inspect)
       @@logger.debug(e.backtrace)
@@ -324,12 +366,13 @@ class Message
   attr_accessor :receiver_id
   attr_accessor :state
   attr_accessor :call_type
+  attr_accessor :source
   MD380TOOLS = "/home/zero/development/md380tools/".freeze
-  headers = "Radio ID,Callsign,Name,City,State,Country,Remarks".freeze
+  #headers = "Radio ID,Callsign,Name,City,State,Country,Remarks".freeze
   @@db =  nil
   @@db_last = 0
 
-  def initialize(c_id,r_id,message_type,time,type)
+  def initialize(c_id,r_id,message_type,time,type,source="RF")
     begin
       self.class.users
       self.caller_id = c_id
@@ -337,6 +380,7 @@ class Message
       self.state = message_type
       self.received_time = time
       self.call_type = type
+      self.source = source
     rescue => e
       puts e.inspect
       puts e.backtrace
@@ -460,7 +504,7 @@ class Message
       puts "#{:updating_db}"
       #`cd #{MD380TOOLS}; make updatedb`
       puts "#{:intentionally_nerfed}"
-      update_derby_db
+      #update_derby_db
       puts "#{:updated}"
     rescue => e
       puts e.inspect
